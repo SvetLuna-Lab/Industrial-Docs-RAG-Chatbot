@@ -1,0 +1,23 @@
+# configs/default.yaml
+
+embedding:
+  # Sentence-transformers model used to build document embeddings
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  # For now we keep everything on CPU for portability
+  device: cpu
+  # Batch size for encoding chunks
+  batch_size: 16
+
+retrieval:
+  # Number of top chunks to retrieve for each query
+  top_k: 5
+
+llm:
+  # In the first iteration we use a stub LLM client
+  provider: stub
+  # Target model name (used once a real provider is wired)
+  model_name: gpt-4o-mini
+  # Optional custom API base URL
+  api_base: ""
+  # Environment variable that stores the API key
+  api_key_env: OPENAI_API_KEY
