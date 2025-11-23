@@ -88,3 +88,33 @@ def test_encode_build_save_load_and_search(tmp_path: Path):
         assert "chunk_id" in meta
         assert "source_path" in meta
         assert meta["text"] in texts
+
+
+
+def test_encode_texts_deterministic():
+    """
+    encode_texts(...) должна быть детерминированной:
+
+    - одинаковые тексты → одинаковые векторы;
+    - разные тексты → векторы, отличающиеся хотя бы в одной компоненте.
+
+    Это важно для воспроизводимости индекса и тестов.
+    """
+    retr = VectorRetriever.for_index_building()
+
+    texts = [
+        "Python retrieval test",
+        "Python retrieval test",  # тот же текст, должен дать тот же вектор
+        "Completely different content",
+    ]
+
+    embeddings = retr.encode_texts(texts)
+
+    # Проверяем, что первый и второй вектора совпадают
+    assert np.allclose(embeddings[0], embeddings[1])
+
+    # А третий отличается хотя бы где-то
+    diff = np.abs(embeddings[0] - embeddings[2])
+    assert (diff > 1e-6).any(), "Embedding for a different text should not be identical"
+
+
