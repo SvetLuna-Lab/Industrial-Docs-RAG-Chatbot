@@ -292,6 +292,42 @@ compute embeddings,
 
 build the FAISS index.
 
+## Building the document index
+
+Before the API can search anything, you need to build a vector index
+from your raw documentation.
+
+This repository provides a simple index builder:
+
+```bash
+python -m scripts.build_index \
+  --input-dir path/to/raw_docs
+
+
+Where:
+
+--input-dir – directory with .txt / .md files (for example: exported
+internal docs, manuals, procedures);
+
+the script will:
+
+recursively scan input-dir for text files;
+
+split each document into overlapping chunks;
+
+compute embeddings via VectorRetriever.encode_texts(...);
+
+build a FAISS index and save it to src.config.INDEX_PATH;
+
+write a JSONL metadata file to src.config.METADATA_PATH
+with doc_id, chunk_id and source_path for every chunk.
+
+After the index is built, the API can load it via:
+
+VectorRetriever.from_config() inside src/api/app.py,
+
+and POST /search will start returning real context snippets
+instead of an empty list.
 
 
 Testing
