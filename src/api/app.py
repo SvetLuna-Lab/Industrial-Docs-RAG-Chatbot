@@ -1,169 +1,96 @@
 # src/api/app.py
 from __future__ import annotations
 
-"""
-Minimal FastAPI app for the Industrial Docs RAG Chatbot.
-
-Endpoints:
-- GET /health  – simple health check.
-- POST /search – vector search over indexed documentation.
-- POST /chat   – stub chat endpoint that uses retrieval only
-                 (no real LLM yet, just echoes retrieved context).
-
-This app is intended as a thin HTTP layer on top of VectorRetriever.
-It can later be extended with a proper LLM backend.
-"""
-
-from functools import lru_cache
 from typing import List, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from src import config
 from src.retriever import VectorRetriever
 
 
-# --------------------------------------------------------------------
-# FastAPI app
-# --------------------------------------------------------------------
-
 app = FastAPI(
-    title="Industrial Docs RAG Chatbot API",
+    title="Simple RAG Demo",
+    description="Minimal API with /health and /search powered by a vector retriever.",
     version="0.1.0",
-    description="HTTP API for vector search and retrieval-augmented chat "
-                "over internal documentation.",
 )
 
 
-# --------------------------------------------------------------------
-# Dependency: retriever singleton
-# --------------------------------------------------------------------
-
-@lru_cache()
-def get_retriever() -> VectorRetriever:
-    """
-    Lazily construct a singleton VectorRetriever.
-
-    Using @lru_cache avoids re-loading FAISS index and embedding model
-    on every request. The retriever is created on first access and then
-    reused for all subsequent calls.
-    """
-    return VectorRetriever.from_default()
-
-
-# --------------------------------------------------------------------
-# Schemas
-# --------------------------------------------------------------------
-
-
 class SearchRequest(BaseModel):
+    """Запрос к эндпоинту /search."""
     query: str
-    top_k: Optional[int] = None
+    top_k: int = 5
 
 
-class RetrievedChunkModel(BaseModel):
-    doc_id: str
-    chunk_id: int
+class SearchHit(BaseModel):
+    """Одна найденная «подсказка» из индекса."""
     score: float
-    text: Optional[str] = None
+    text: str
+    doc_id: Optional[str] = None
+    chunk_id: Optional[int] = None
+    source_path: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
+    """Ответ /search: исходный запрос + список найденных фрагментов."""
     query: str
-    results: List[RetrievedChunkModel]
+    top_k: int
+    hits: List[SearchHit]
 
 
-class ChatRequest(BaseModel):
-    query: str
-    top_k: Optional[int] = 5
+# Ленивая инициализация ретривера, чтобы не создавать его при каждом запросе
+_retriever: Optional[VectorRetriever] = None
 
 
-class ChatResponse(BaseModel):
-    query: str
-    answer: str
-    context: List[RetrievedChunkModel]
+def get_retriever() -> VectorRetriever:
+    """
+    Возвращает singleton-экземпляр VectorRetriever.
 
+    Использует конфиг src.config:
+    - config.INDEX_PATH
+    - config.METADATA_PATH
 
-# --------------------------------------------------------------------
-# Routes
-# --------------------------------------------------------------------
+    При первом вызове загружает FAISS-индекс и метаданные с диска.
+    """
+    global _retriever
+    if _retriever is None:
+        _retriever = VectorRetriever.from_config(config)
+    return _retriever
 
 
 @app.get("/health")
 def health() -> dict:
-    """
-    Simple health check endpoint.
-
-    Returns "ok" if the API process is up and dependencies can be imported.
-    Note: it does not force index/model loading; that happens on first
-    search/chat call via get_retriever().
-    """
+    """Простой health-check, удобно для smoke-тестов и мониторинга."""
     return {"status": "ok"}
 
 
 @app.post("/search", response_model=SearchResponse)
-def search(req: SearchRequest) -> SearchResponse:
+def search(request: SearchRequest) -> SearchResponse:
     """
-    Run vector search over the indexed documentation.
+    Эндпоинт поиска по векторному индексу.
 
-    The implementation:
-    - uses VectorRetriever.from_default() via get_retriever();
-    - runs search(query, top_k);
-    - returns a list of chunks with scores and text snippets.
+    Берёт текстовый запрос, запускает VectorRetriever.search(...) и
+    возвращает топ-k фрагментов с оценкой релевантности и базовыми метаданными.
     """
     retriever = get_retriever()
-    results = retriever.search(req.query, top_k=req.top_k, with_text=True)
+    results = retriever.search(request.query, top_k=request.top_k)
+
+    hits: List[SearchHit] = []
+    for r in results:
+        meta = r.get("metadata", {}) if isinstance(r, dict) else {}
+        hits.append(
+            SearchHit(
+                score=float(r.get("score", 0.0)),
+                text=str(meta.get("text", "")),
+                doc_id=meta.get("doc_id"),
+                chunk_id=meta.get("chunk_id"),
+                source_path=meta.get("source_path"),
+            )
+        )
 
     return SearchResponse(
-        query=req.query,
-        results=[
-            RetrievedChunkModel(
-                doc_id=r.doc_id,
-                chunk_id=r.chunk_id,
-                score=r.score,
-                text=r.text,
-            )
-            for r in results
-        ],
-    )
-
-
-@app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
-    """
-    Stub chat endpoint.
-
-    Current behavior:
-    - runs retrieval over documentation with the given query;
-    - builds a simple "answer" string that explains this is a stub;
-    - returns retrieved chunks as context.
-
-    In a real RAG system this is where an LLM would be called with
-    (query + retrieved context) to generate a full answer.
-    """
-    retriever = get_retriever()
-    results = retriever.search(req.query, top_k=req.top_k, with_text=True)
-
-    # Very simple stub answer
-    answer = (
-        "This is a stub chat endpoint. The system retrieved "
-        f"{len(results)} relevant chunks from the documentation. "
-        "A real LLM backend can be plugged in here to generate "
-        "a detailed answer based on the context."
-    )
-
-    context_models = [
-        RetrievedChunkModel(
-            doc_id=r.doc_id,
-            chunk_id=r.chunk_id,
-            score=r.score,
-            text=r.text,
-        )
-        for r in results
-    ]
-
-    return ChatResponse(
-        query=req.query,
-        answer=answer,
-        context=context_models,
+        query=request.query,
+        top_k=request.top_k,
+        hits=hits,
     )
