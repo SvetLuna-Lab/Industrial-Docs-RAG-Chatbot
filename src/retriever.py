@@ -1,274 +1,184 @@
 # src/retriever.py
 from __future__ import annotations
 
-"""
-Vector retriever for the Industrial Docs RAG Chatbot.
-
-Responsibilities:
-- load FAISS index and metadata built by src.ingest;
-- encode user queries with the same embedding model;
-- perform top-K similarity search;
-- optionally reconstruct chunk text from data/raw using the same
-  splitting logic as in src.ingest.
-
-This module is intentionally simple and self-contained so that it can be
-used both by CLI tools and by a future FastAPI app.
-"""
-
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-
+from typing import List, Dict, Any, Optional
 import json
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+from . import config
 
 try:
     import faiss  # type: ignore
-except ImportError as exc:
-    raise RuntimeError(
-        "faiss is required for the retriever. "
-        "Please install faiss-cpu in your environment."
-    ) from exc
-
-from .config import PATHS, load_app_config
-from . import ingest  # to reuse read_text_file / split_into_chunks
-
-
-# --------------------------------------------------------------------
-# Data structures
-# --------------------------------------------------------------------
-
-
-@dataclass
-class RetrievedChunk:
-    """
-    A single retrieval result for a user query.
-
-    Attributes:
-        doc_id: logical document identifier (relative path from data/raw).
-        chunk_id: index of the chunk within the document.
-        score: similarity score (inner product / cosine similarity).
-        text: optional chunk text; can be populated on demand.
-    """
-
-    doc_id: str
-    chunk_id: int
-    score: float
-    text: Optional[str] = None
-
-
-# --------------------------------------------------------------------
-# Metadata loading helpers
-# --------------------------------------------------------------------
-
-
-def _load_metadata(meta_path: Path) -> List[Dict[str, Any]]:
-    """
-    Load metadata.jsonl created by src.ingest.save_index_and_metadata.
-
-    Each line is a JSON object with at least:
-        - row_id
-        - doc_id
-        - chunk_id
-    """
-    if not meta_path.exists():
-        raise FileNotFoundError(f"Metadata file not found: {meta_path}")
-
-    rows: List[Dict[str, Any]] = []
-    with meta_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            rows.append(obj)
-    return rows
-
-
-def _build_rowid_to_meta(meta_rows: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
-    """
-    Build a lookup dict row_id -> metadata dict for faster access.
-    """
-    mapping: Dict[int, Dict[str, Any]] = {}
-    for row in meta_rows:
-        row_id = int(row["row_id"])
-        mapping[row_id] = row
-    return mapping
-
-
-# --------------------------------------------------------------------
-# Retriever class
-# --------------------------------------------------------------------
+except ImportError:  # pragma: no cover
+    faiss = None
 
 
 class VectorRetriever:
     """
-    Vector similarity retriever backed by FAISS and sentence-transformers.
+    Vector-based retriever for document chunks.
 
-    Typical usage:
+    Responsibilities:
+    - encode texts into embedding vectors;
+    - build/save/load a FAISS index;
+    - execute top-k similarity search and return metadata for chunks.
 
-        retriever = VectorRetriever.from_default()
-        results = retriever.search("Как настроить безопасный SSH?", top_k=5)
-
-    By default it:
-    - loads FAISS index from PATHS.index_dir / "faiss_index.bin";
-    - loads metadata.jsonl from the same directory;
-    - uses the embedding model specified in configs/default.yaml.
+    In this skeleton implementation we use a very simple hash-based
+    embedding instead of a real encoder model. This is enough to keep
+    the RAG pipeline shape without adding heavy dependencies.
     """
 
     def __init__(
         self,
-        index: faiss.Index,
-        metadata: List[Dict[str, Any]],
-        embedding_model: SentenceTransformer,
-        raw_data_dir: Path,
-        default_top_k: int,
+        index_path: Optional[Path] = None,
+        metadata_path: Optional[Path] = None,
     ) -> None:
-        self.index = index
-        self._metadata = metadata
-        self._rowid_to_meta = _build_rowid_to_meta(metadata)
-        self.embedding_model = embedding_model
-        self.raw_data_dir = raw_data_dir
-        self.default_top_k = default_top_k
+        self.index_path = index_path
+        self.metadata_path = metadata_path
 
-    # --------------------------- construction ------------------------ #
+        self.index = None
+        self.metadata: List[Dict[str, Any]] = []
+
+        # Lazy init — we only try to load if paths are provided
+        if index_path is not None and index_path.exists() and faiss is not None:
+            self.index = faiss.read_index(str(index_path))
+
+        if metadata_path is not None and metadata_path.exists():
+            with metadata_path.open("r", encoding="utf-8") as f:
+                self.metadata = [json.loads(line) for line in f]
+
+    # ------------------------------------------------------------------
+    # Factory helpers
+    # ------------------------------------------------------------------
+    @classmethod
+    def from_config(cls) -> "VectorRetriever":
+        """
+        Construct a retriever using paths from src.config.
+        """
+        index_path = Path(config.INDEX_PATH)
+        metadata_path = Path(config.METADATA_PATH)
+        return cls(index_path=index_path, metadata_path=metadata_path)
 
     @classmethod
-    def from_default(cls) -> "VectorRetriever":
+    def for_index_building(cls) -> "VectorRetriever":
         """
-        Construct a retriever using default paths and configuration:
+        Construct a retriever for index building.
 
-        - configs/default.yaml (or env override via load_app_config);
-        - index and metadata under PATHS.index_dir;
-        - raw documents under PATHS.raw_data_dir.
+        In this mode we do not expect an existing FAISS index or metadata.
+        The instance is used only to:
+        - encode text chunks;
+        - build and save a new index.
         """
-        cfg = load_app_config()
+        return cls(index_path=None, metadata_path=None)
 
-        index_path = PATHS.index_dir / "faiss_index.bin"
-        meta_path = PATHS.index_dir / "metadata.jsonl"
-
-        if not index_path.exists():
-            raise FileNotFoundError(
-                f"FAISS index not found at {index_path}. "
-                "Did you run `python -m src.ingest` first?"
-            )
-
-        index = faiss.read_index(str(index_path))
-        metadata = _load_metadata(meta_path)
-
-        model = SentenceTransformer(
-            cfg.embedding.model_name,
-            device=cfg.embedding.device,
-        )
-
-        return cls(
-            index=index,
-            metadata=metadata,
-            embedding_model=model,
-            raw_data_dir=PATHS.raw_data_dir,
-            default_top_k=cfg.retrieval.top_k,
-        )
-
-    # --------------------------- core API ---------------------------- #
-
-    def encode_query(self, query: str) -> np.ndarray:
+    # ------------------------------------------------------------------
+    # Embeddings
+    # ------------------------------------------------------------------
+    def encode_texts(self, texts: List[str]) -> np.ndarray:
         """
-        Encode a single text query into a normalized embedding vector.
-        """
-        emb = self.embedding_model.encode(
-            [query],
-            show_progress_bar=False,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        )
-        # emb shape: (1, D)
-        return emb.astype("float32")
+        Encode a list of texts into embedding vectors.
 
-    def search(
-        self,
-        query: str,
-        top_k: Optional[int] = None,
-        with_text: bool = True,
-    ) -> List[RetrievedChunk]:
-        """
-        Perform a vector search over the indexed chunks.
+        Current implementation: simple hash-based bag-of-words encoder.
+        - Dimension is fixed (dim = 384).
+        - For each token we increment one bucket determined by hash(token).
+        - Vectors are L2-normalized.
 
-        Args:
-            query: user query string.
-            top_k: number of results to return (defaults to config.retrieval.top_k).
-            with_text: if True, reconstruct chunk text from data/raw.
-
-        Returns:
-            List of RetrievedChunk sorted by descending score.
+        This is a placeholder that can later be replaced by:
+        - Sentence-Transformers;
+        - OpenAI embeddings;
+        - any other encoder.
         """
-        if self.index.ntotal == 0:
+        dim = 384
+        vectors = np.zeros((len(texts), dim), dtype="float32")
+
+        for i, text in enumerate(texts):
+            for token in text.split():
+                h = hash(token) % dim
+                vectors[i, h] += 1.0
+
+        # L2 normalization
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        vectors = vectors / norms
+        return vectors.astype("float32")
+
+    # ------------------------------------------------------------------
+    # FAISS index helpers
+    # ------------------------------------------------------------------
+    def build_faiss_index(self, embeddings: np.ndarray):
+        """
+        Build a FAISS index from embeddings.
+
+        Uses inner-product (cosine-like, if embeddings are normalized).
+        """
+        if faiss is None:  # pragma: no cover
+            raise RuntimeError("faiss is not installed; cannot build index")
+
+        if embeddings.dtype != np.float32:
+            embeddings = embeddings.astype("float32")
+
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatIP(dim)
+        index.add(embeddings)
+        return index
+
+    def save_faiss_index(self, index, path: Path) -> None:
+        """
+        Save FAISS index to disk.
+        """
+        if faiss is None:  # pragma: no cover
+            raise RuntimeError("faiss is not installed; cannot save index")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(index, str(path))
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """
+        Run a top-k similarity search for a query string.
+
+        Returns a list of records:
+        {
+            "rank": int,
+            "score": float,
+            "doc_id": str | None,
+            "chunk_id": int | None,
+            "source_path": str | None,
+            ...
+        }
+        """
+        if self.index is None or faiss is None or not self.metadata:
+            # No index or no metadata – nothing to search
             return []
 
-        k = top_k or self.default_top_k
-        if k <= 0:
-            return []
+        query_vec = self.encode_texts([query])
+        scores, indices = self.index.search(query_vec, top_k)
 
-        query_vec = self.encode_query(query)
-        scores, indices = self.index.search(query_vec, k)
-
-        # scores: (1, k), indices: (1, k)
-        scores_row = scores[0]
-        idx_row = indices[0]
-
-        results: List[RetrievedChunk] = []
-
-        for score, row_id in zip(scores_row, idx_row):
-            if row_id < 0:
-                continue  # FAISS uses -1 for empty results
-
-            meta = self._rowid_to_meta.get(int(row_id))
-            if meta is None:
+        results: List[Dict[str, Any]] = []
+        for rank, (score, idx) in enumerate(zip(scores[0], indices[0])):
+            if idx < 0:
                 continue
 
-            doc_id = str(meta["doc_id"])
-            chunk_id = int(meta["chunk_id"])
-
-            text: Optional[str] = None
-            if with_text:
-                text = self._load_chunk_text(doc_id, chunk_id)
+            meta: Dict[str, Any] = {}
+            if 0 <= idx < len(self.metadata):
+                meta = dict(self.metadata[idx])
+            # Fallbacks if keys are missing
+            doc_id = meta.get("doc_id")
+            chunk_id = meta.get("chunk_id")
+            source_path = meta.get("source_path")
 
             results.append(
-                RetrievedChunk(
-                    doc_id=doc_id,
-                    chunk_id=chunk_id,
-                    score=float(score),
-                    text=text,
-                )
+                {
+                    "rank": rank,
+                    "score": float(score),
+                    "doc_id": doc_id,
+                    "chunk_id": chunk_id,
+                    "source_path": source_path,
+                    "metadata": meta,
+                }
             )
 
-        # Already sorted by FAISS, but we sort explicitly just in case
-        results.sort(key=lambda r: r.score, reverse=True)
         return results
-
-    # ---------------------- internal helpers ------------------------- #
-
-    def _load_chunk_text(self, doc_id: str, chunk_id: int) -> Optional[str]:
-        """
-        Reconstruct a chunk's text by:
-        - reading the original document from data/raw;
-        - splitting it with the same logic as in src.ingest;
-        - selecting the chunk by index.
-
-        This avoids storing full text in metadata.jsonl.
-        """
-        file_path = self.raw_data_dir / Path(doc_id)
-        if not file_path.exists():
-            return None
-
-        try:
-            raw_text = ingest.read_text_file(file_path)
-            chunks = ingest.split_into_chunks(raw_text)
-        except Exception:
-            return None
-
-        if 0 <= chunk_id < len(chunks):
-            return chunks[chunk_id]
-
-        return None
