@@ -58,8 +58,11 @@ class VectorRetriever:
         Construct a retriever using paths and defaults from src.config.
         """
         app_cfg = config.load_app_config()
-        index_path = config.INDEX_PATH
-        metadata_path = config.METADATA_PATH
+
+        # Допускаем, что INDEX_PATH / METADATA_PATH могут быть как str, так и Path
+        index_path = Path(config.INDEX_PATH)
+        metadata_path = Path(config.METADATA_PATH)
+
         return cls(index_path=index_path, metadata_path=metadata_path, app_config=app_cfg)
 
     @classmethod
