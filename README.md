@@ -25,7 +25,7 @@ By default, the `/chat` endpoint still behaves as a **stub**:
 You can enable a minimal end-to-end RAG flow by configuring an OpenAI-compatible backend:
 
 
-# configs/default.yaml
+#configs/default.yaml
 llm:
   provider: openai
   model_name: gpt-4o-mini          # or any other chat model
@@ -95,7 +95,7 @@ If the API key is missing or the call fails, the endpoint safely falls back to t
 ```bash
 python -m src.cli search "How to harden SSH on Ubuntu?" --top-k 5
 
-```
+
 
 
 ## 🌐 HTTP API (FastAPI + Uvicorn)
