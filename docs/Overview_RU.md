@@ -1,4 +1,6 @@
-**Обзор проекта (RU)**
+# Industrial Docs RAG Chatbot — обзор проекта (RU)
+
+
 **1. Идея**
 
 Этот репозиторий — «скелет» системы Retrieval-Augmented Generation (RAG)
