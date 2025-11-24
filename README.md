@@ -634,6 +634,12 @@ docker run --rm -p 8000:8000 \
 
 
 ## Versioning
+
+Current version: **v0.2.0** (first public release).
+
+Version numbers follow the MAJOR.MINOR.PATCH scheme.  
+Details: [CHANGELOG.md](./CHANGELOG.md).
+
 ## [0.1.0] - 2025-11-24
 - Initial industrial RAG skeleton: config, VectorRetriever, CLI, FastAPI API, index builders, example industrial docs and tests.
 
