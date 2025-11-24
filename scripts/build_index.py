@@ -195,8 +195,10 @@ def main() -> None:
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
-    index_path = config.INDEX_PATH.resolve()
-    metadata_path = config.METADATA_PATH.resolve()
+    # Преобразуем config.INDEX_PATH / METADATA_PATH к Path,
+    # чтобы поддерживать и str, и Path в конфиге/тестах.
+    index_path = Path(config.INDEX_PATH).resolve()
+    metadata_path = Path(config.METADATA_PATH).resolve()
 
     build_index_from_dir(
         input_dir=input_dir,
