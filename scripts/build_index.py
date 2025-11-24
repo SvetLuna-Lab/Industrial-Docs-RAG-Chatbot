@@ -1,4 +1,3 @@
-# scripts/build_index.py
 from __future__ import annotations
 
 """
@@ -30,7 +29,10 @@ from src import config
 from src.retriever import VectorRetriever
 
 
-def iter_text_files(root: Path, suffixes: tuple[str, ...] = (".txt", ".md")) -> Iterable[Path]:
+def iter_text_files(
+    root: Path,
+    suffixes: tuple[str, ...] = (".txt", ".md"),
+) -> Iterable[Path]:
     """
     Recursively yield all files under `root` with given suffixes.
     """
@@ -49,7 +51,11 @@ def read_document(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
-def simple_chunk_text(text: str, max_chars: int = 800, overlap: int = 100) -> List[str]:
+def simple_chunk_text(
+    text: str,
+    max_chars: int = 800,
+    overlap: int = 100,
+) -> List[str]:
     """
     Very simple character-based chunking.
 
@@ -89,13 +95,23 @@ def build_index_from_dir(
     - chunk their content,
     - embed chunks,
     - build and save FAISS index + metadata JSONL.
+
+    Each metadata record has the shape:
+    {
+        "doc_id": str,
+        "chunk_id": int,
+        "source_path": str,
+        "text": str,        # chunk text
+    }
     """
     # Collect chunks
     docs_meta: List[Dict[str, Any]] = []
     texts: List[str] = []
 
     print(f"[build_index] Scanning directory: {input_dir}")
-    for doc_idx, path in enumerate(iter_text_files(input_dir)):
+    for doc_idx, path in enumerate(
+        tqdm(iter_text_files(input_dir), desc="Docs", unit="doc")
+    ):
         doc_id = path.stem
         raw_text = read_document(path)
         chunks = simple_chunk_text(raw_text, max_chars=max_chars, overlap=overlap)
@@ -107,6 +123,7 @@ def build_index_from_dir(
                     "doc_id": doc_id,
                     "chunk_id": chunk_idx,
                     "source_path": str(path),
+                    "text": chunk_text,
                 }
             )
 
@@ -115,7 +132,7 @@ def build_index_from_dir(
 
     print(f"[build_index] Total chunks: {len(texts)}")
 
-    # Initialize retriever in "index builder" mode
+    # Initialize retriever in "index builder" mode.
     # We rely on it to provide an embedding function and a FAISS index builder.
     retriever = VectorRetriever.for_index_building()
 
@@ -178,8 +195,8 @@ def main() -> None:
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
-    index_path = Path(config.INDEX_PATH).resolve()
-    metadata_path = Path(config.METADATA_PATH).resolve()
+    index_path = config.INDEX_PATH.resolve()
+    metadata_path = config.METADATA_PATH.resolve()
 
     build_index_from_dir(
         input_dir=input_dir,
