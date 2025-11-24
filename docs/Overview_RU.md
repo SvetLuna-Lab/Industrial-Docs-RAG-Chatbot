@@ -144,6 +144,7 @@ python -m src.cli search "How to harden SSH on Ubuntu?" --top-k 5
 
 **3. Структура проекта**
 
+```text
 project-root/
 ├─ configs/
 │  └─ default.yaml          # параметры эмбеддингов, ретривера, LLM
@@ -175,6 +176,7 @@ project-root/
 ├─ requirements-dev.txt     # dev-зависимости (pytest, black, mypy и т.п.)
 ├─ pytest.ini               # конфигурация pytest
 ├─ .gitignore               # игнорирование venv, кэшей, временных файлов
+├─ LICENSE
 └─ README.md                # основное описание проекта (EN)
 
 
