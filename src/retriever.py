@@ -1,4 +1,3 @@
-# src/retriever.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,9 +32,11 @@ class VectorRetriever:
         self,
         index_path: Optional[Path] = None,
         metadata_path: Optional[Path] = None,
+        app_config: Optional[config.AppConfig] = None,
     ) -> None:
         self.index_path = index_path
         self.metadata_path = metadata_path
+        self.app_config = app_config
 
         self.index = None
         self.metadata: List[Dict[str, Any]] = []
@@ -54,11 +55,21 @@ class VectorRetriever:
     @classmethod
     def from_config(cls) -> "VectorRetriever":
         """
-        Construct a retriever using paths from src.config.
+        Construct a retriever using paths and defaults from src.config.
         """
-        index_path = Path(config.INDEX_PATH)
-        metadata_path = Path(config.METADATA_PATH)
-        return cls(index_path=index_path, metadata_path=metadata_path)
+        app_cfg = config.load_app_config()
+        index_path = config.INDEX_PATH
+        metadata_path = config.METADATA_PATH
+        return cls(index_path=index_path, metadata_path=metadata_path, app_config=app_cfg)
+
+    @classmethod
+    def from_default(cls) -> "VectorRetriever":
+        """
+        Backwards-compatible alias for from_config().
+
+        This name is used in some README examples.
+        """
+        return cls.from_config()
 
     @classmethod
     def for_index_building(cls) -> "VectorRetriever":
@@ -70,7 +81,7 @@ class VectorRetriever:
         - encode text chunks;
         - build and save a new index.
         """
-        return cls(index_path=None, metadata_path=None)
+        return cls(index_path=None, metadata_path=None, app_config=None)
 
     # ------------------------------------------------------------------
     # Embeddings
@@ -136,7 +147,12 @@ class VectorRetriever:
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
-    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        with_text: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         Run a top-k similarity search for a query string.
 
@@ -147,12 +163,20 @@ class VectorRetriever:
             "doc_id": str | None,
             "chunk_id": int | None,
             "source_path": str | None,
-            ...
+            "text": str | None,              # if with_text=True and present in metadata
+            "metadata": dict,                # raw metadata for the chunk
         }
         """
         if self.index is None or faiss is None or not self.metadata:
-            # No index or no metadata – nothing to search
+            # No index, no FAISS, or no metadata – nothing to search
             return []
+
+        # Determine effective top_k: passed value > config > hard default
+        if top_k is None or top_k <= 0:
+            if self.app_config is not None:
+                top_k = max(1, self.app_config.retrieval.top_k)
+            else:
+                top_k = 5
 
         query_vec = self.encode_texts([query])
         scores, indices = self.index.search(query_vec, top_k)
@@ -165,20 +189,25 @@ class VectorRetriever:
             meta: Dict[str, Any] = {}
             if 0 <= idx < len(self.metadata):
                 meta = dict(self.metadata[idx])
+
             # Fallbacks if keys are missing
             doc_id = meta.get("doc_id")
             chunk_id = meta.get("chunk_id")
             source_path = meta.get("source_path")
+            chunk_text = meta.get("text")
 
-            results.append(
-                {
-                    "rank": rank,
-                    "score": float(score),
-                    "doc_id": doc_id,
-                    "chunk_id": chunk_id,
-                    "source_path": source_path,
-                    "metadata": meta,
-                }
-            )
+            result: Dict[str, Any] = {
+                "rank": rank,
+                "score": float(score),
+                "doc_id": doc_id,
+                "chunk_id": chunk_id,
+                "source_path": source_path,
+                "metadata": meta,
+            }
+
+            if with_text:
+                result["text"] = chunk_text
+
+            results.append(result)
 
         return results
