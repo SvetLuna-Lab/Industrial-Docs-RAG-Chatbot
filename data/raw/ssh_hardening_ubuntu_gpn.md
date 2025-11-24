@@ -58,9 +58,9 @@ LogLevel VERBOSE
 - Ограничить список пользователей (пример):
 
 ```text
--AllowUsers admin_ops deploy_ci
+AllowUsers admin_ops deploy_ci
 
- ```
+```
 
 
 После изменения конфигурации необходимо выполнить перезапуск службы SSH стандартными средствами ОС (systemd).
