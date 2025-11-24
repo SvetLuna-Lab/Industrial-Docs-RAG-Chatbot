@@ -1,14 +1,11 @@
-# src/api/app.py
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from src import config
 from src.retriever import VectorRetriever
-
 
 app = FastAPI(
     title="RAG Vector API",
@@ -76,21 +73,21 @@ def get_retriever() -> VectorRetriever:
     Returns a singleton instance of VectorRetriever.
 
     In production:
-    - loads FAISS index and metadata via VectorRetriever.from_config(config).
+    - loads FAISS index and metadata via VectorRetriever.from_config().
 
     In tests:
     - tests/test_api_smoke.py monkeypatches this function to return DummyRetriever.
     """
     global _retriever
     if _retriever is None:
-        _retriever = VectorRetriever.from_config(config)
+        _retriever = VectorRetriever.from_config()
     return _retriever
 
 
 # ---------- Helpers to adapt result objects ----------
 
 
-def _get_attr_or_key(obj, name: str, default=None):
+def _get_attr_or_key(obj: Any, name: str, default=None):
     """
     Universal accessor for result fields:
     - if obj is dict, use obj[name];
@@ -104,7 +101,7 @@ def _get_attr_or_key(obj, name: str, default=None):
     return default
 
 
-def _result_to_search_result(r) -> SearchResult:
+def _result_to_search_result(r: Any) -> SearchResult:
     """
     Convert a retriever result (dict or object with attributes)
     to a Pydantic SearchResult.
@@ -116,7 +113,18 @@ def _result_to_search_result(r) -> SearchResult:
     doc_id = _get_attr_or_key(r, "doc_id", "unknown")
     chunk_id = int(_get_attr_or_key(r, "chunk_id", 0))
     score = float(_get_attr_or_key(r, "score", 0.0))
-    text = _get_attr_or_key(r, "text", "")
+
+    # Try direct "text" first
+    text = _get_attr_or_key(r, "text", None)
+
+    # Fallback: many retrievers keep chunk text inside r["metadata"]["text"]
+    if (text is None or text == "") and isinstance(r, dict):
+        meta = r.get("metadata") or {}
+        if isinstance(meta, dict):
+            text = meta.get("text", "")
+
+    if text is None:
+        text = ""
 
     return SearchResult(
         doc_id=str(doc_id),
@@ -149,9 +157,6 @@ def search(request: SearchRequest) -> SearchResponse:
     Response shape matches tests/test_api_smoke.py.
     """
     retriever = get_retriever()
-    # In real code VectorRetriever.search may not need `with_text`,
-    # but DummyRetriever in tests supports it. We pass only parameters
-    # that are safe for both.
     raw_results = retriever.search(request.query, top_k=request.top_k)
 
     results = [_result_to_search_result(r) for r in raw_results]
@@ -187,3 +192,4 @@ def chat(request: ChatRequest) -> ChatResponse:
         answer=answer,
         context=context,
     )
+
