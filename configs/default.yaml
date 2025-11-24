@@ -13,11 +13,13 @@ retrieval:
   top_k: 5
 
 llm:
-  # In the first iteration we use a stub LLM client
-  provider: stub
-  # Target model name (used once a real provider is wired)
+  # LLM backend configuration for the /chat endpoint.
+  # To run in pure stub mode (no external calls), set:
+  # provider: stub
+  provider: openai
+  # Target model name for the OpenAI-compatible endpoint
   model_name: gpt-4o-mini
-  # Optional custom API base URL
-  api_base: ""
+  # OpenAI-compatible API base URL
+  api_base: "https://api.openai.com/v1"
   # Environment variable that stores the API key
   api_key_env: OPENAI_API_KEY
