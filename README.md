@@ -38,13 +38,13 @@ export OPENAI_API_KEY="sk-..."
 
 The /chat endpoint will:
 
-run retrieval to get context chunks;
+1. run retrieval to get context chunks;
 
-build a simple prompt with the query + context;
+2. build a simple prompt with the query + context;
 
-call POST {api_base}/chat/completions via httpx;
+3. call POST {api_base}/chat/completions via httpx;
 
-return the LLM answer together with the retrieved context.
+4. return the LLM answer together with the retrieved context.
 
 If the API key is missing or the call fails, the endpoint safely falls back to the historical stub answer.
 
@@ -100,51 +100,51 @@ python -m src.cli search "How to harden SSH on Ubuntu?" --top-k 5
 
 ## 🌐 HTTP API (FastAPI + Uvicorn)
 
-GET /health – health-check.
+- GET /health – health-check.
 
-POST /search – vector search over the index.
+- POST /search – vector search over the index.
 
-POST /chat – stub RAG endpoint that calls the retriever and returns a template answer + context.
+- POST /chat – stub RAG endpoint that calls the retriever and returns a template answer + context.
 
 ## 📚 Example industrial corpus (in data/raw/)
 
-SSH hardening and SSH access policies.
+- SSH hardening and SSH access policies.
 
-Pump unit N-250 maintenance regulation.
+- Pump unit N-250 maintenance regulation.
 
-Technical incident report templates.
+- Technical incident report templates.
 
-RAG chatbot operator manuals.
+- RAG chatbot operator manuals.
 
-Data classification guidelines (RU + EN).
+- Data classification guidelines (RU + EN).
 
 
 ## 🧩 Architecture Overview
 1. Configuration (src/config.py, configs/default.yaml)
 
-src/config.py:
+- src/config.py:
 
-defines Paths:
+- defines Paths:
 
-project_root
+- project_root
 
-configs_dir
+- configs_dir
 
-raw_data_dir (data/raw)
+- raw_data_dir (data/raw)
 
-index_dir (data/index)
+- index_dir (data/index)
 
-defines typed config models:
+- defines typed config models:
 
-EmbeddingConfig
+- EmbeddingConfig
 
-RetrievalConfig
+- RetrievalConfig
 
-LLMConfig
+- LLMConfig
 
-AppConfig
+- AppConfig
 
-provides:
+- provides:
 
 
 PATHS = Paths.from_project_root()
@@ -154,7 +154,7 @@ def load_app_config(path: Optional[Path] = None) -> AppConfig:
     ...
 
 
-configs/default.yaml (example):
+- configs/default.yaml (example):
 
 embedding:
   model_name: sentence-transformers/all-MiniLM-L6-v2
@@ -180,19 +180,19 @@ There are two ways to build a document index.
 
 2.1 Lightweight index builder (scripts/build_index.py)
 
-Reads .txt / .md from a given directory.
+- Reads .txt / .md from a given directory.
 
-Splits text into character-based chunks (with overlap).
+- Splits text into character-based chunks (with overlap).
 
-Uses VectorRetriever.encode_texts(...) (hash-based embeddings).
+- Uses VectorRetriever.encode_texts(...) (hash-based embeddings).
 
-Builds a FAISS index (IndexFlatIP).
+- Builds a FAISS index (IndexFlatIP).
 
-Writes:
+- Writes:
 
-config.INDEX_PATH – FAISS index (e.g. data/index/faiss_index.bin)
+- config.INDEX_PATH – FAISS index (e.g. data/index/faiss_index.bin)
 
-config.METADATA_PATH – metadata JSONL with:
+- config.METADATA_PATH – metadata JSONL with:
 
 
 {
@@ -206,11 +206,11 @@ config.METADATA_PATH – metadata JSONL with:
 
 2.2 Ingestion pipeline with Sentence-Transformers (src/ingest.py)
 
-Walks through PATHS.raw_data_dir (data/raw).
+- Walks through PATHS.raw_data_dir (data/raw).
 
-Builds paragraph-based overlapping chunks.
+- Builds paragraph-based overlapping chunks.
 
-Uses SentenceTransformer from cfg.embedding.model_name:
+- Uses SentenceTransformer from cfg.embedding.model_name:
 
 
 embeddings = model.encode(
@@ -223,13 +223,13 @@ embeddings = model.encode(
 
 
 
-Builds a FAISS index (IndexFlatIP with normalized embeddings).
+- Builds a FAISS index (IndexFlatIP with normalized embeddings).
 
-Saves:
+- Saves:
 
-data/index/faiss_index.bin
+- data/index/faiss_index.bin
 
-data/index/metadata.jsonl (row_id, doc_id, chunk_id, …).
+- data/index/metadata.jsonl (row_id, doc_id, chunk_id, …).
 
 You can choose either approach depending on your environment and quality requirements.
 
@@ -239,17 +239,18 @@ You can choose either approach depending on your environment and quality require
 
 The core abstraction is VectorRetriever.
 
+
 Key responsibilities:
 
-encode texts into vectors (current implementation: hash-based, fixed dim=384, L2-normalized);
+- encode texts into vectors (current implementation: hash-based, fixed dim=384, L2-normalized);
 
-build FAISS index (IndexFlatIP);
+- build FAISS index (IndexFlatIP);
 
-save index to disk;
+- save index to disk;
 
-load index + metadata JSONL;
+- load index + metadata JSONL;
 
-run top-k search and return structured results.
+- run top-k search and return structured results.
 
 Construction helpers:
 
@@ -301,13 +302,13 @@ Minimal FastAPI app exposing the retriever via HTTP.
 
 Endpoints
 
-GET /health
+- GET /health
 Returns:
 
 {"status": "ok"}
 
 
-POST /search
+- POST /search
 
 Request:
 
@@ -333,15 +334,15 @@ Response:
 
 
 
-POST /chat (stub RAG endpoint)
+- POST /chat (stub RAG endpoint)
 
 For now, /chat:
 
-runs retrieval with the given query,
+- runs retrieval with the given query,
 
-returns a stub answer string,
+- returns a stub answer string,
 
-includes retrieved chunks as context.
+- includes retrieved chunks as context.
 
 Request:
 
@@ -381,11 +382,11 @@ python -m src.cli search "How to harden SSH on Ubuntu?" --top-k 5
 
 What it does:
 
-loads VectorRetriever via VectorRetriever.from_default(),
+- loads VectorRetriever via VectorRetriever.from_default(),
 
-runs search(query, top_k=...),
+- runs search(query, top_k=...),
 
-prints score, doc_id, chunk_id and a short snippet of the text for each hit.
+- prints score, doc_id, chunk_id and a short snippet of the text for each hit.
 
 Example output:
 
@@ -496,21 +497,21 @@ Option A — Lightweight index builder (scripts/build_index.py)
 python -m scripts.build_index \
   --input-dir data/raw
 
-Where:
+- Where:
 
 --input-dir is a directory with .txt / .md files (e.g., exported internal docs, manuals, procedures).
 
 The script will:
 
-Recursively scan input-dir for text files.
+1. Recursively scan input-dir for text files.
 
-Split each document into overlapping character chunks.
+2. Split each document into overlapping character chunks.
 
-Compute hash-based embeddings via VectorRetriever.encode_texts(...).
+3. Compute hash-based embeddings via VectorRetriever.encode_texts(...).
 
-Build a FAISS index and save it to config.INDEX_PATH.
+4. Build a FAISS index and save it to config.INDEX_PATH.
 
-Write a JSONL metadata file to config.METADATA_PATH with doc_id, chunk_id, source_path, and text.
+5. Write a JSONL metadata file to config.METADATA_PATH with doc_id, chunk_id, source_path, and text.
 
 Option B — Ingestion pipeline with Sentence-Transformers (src/ingest.py)
 
@@ -519,15 +520,15 @@ python -m src.ingest
 
 The script will:
 
-Read all docs from PATHS.raw_data_dir (defaults to data/raw/).
+1. Read all docs from PATHS.raw_data_dir (defaults to data/raw/).
 
-Build paragraph-based overlapping chunks.
+2. Build paragraph-based overlapping chunks.
 
-Compute high-quality embeddings using the model configured in configs/default.yaml.
+3. Compute high-quality embeddings using the model configured in configs/default.yaml.
 
-Build a FAISS index.
+4. Build a FAISS index.
 
-Save:
+5. Save:
 
 data/index/faiss_index.bin
 
@@ -545,40 +546,40 @@ uvicorn src.api.app:app --reload
 
 Then open:
 
-Swagger UI: http://127.0.0.1:8000/docs
+- Swagger UI: http://127.0.0.1:8000/docs
 
-ReDoc: http://127.0.0.1:8000/redoc
+- ReDoc: http://127.0.0.1:8000/redoc
 
 You can:
 
-check GET /health,
+- check GET /health,
 
-play with POST /search,
+- play with POST /search,
 
-try the stub POST /chat.
+- try the stub POST /chat.
 
 
 ## 🧪 Testing
 
 Tests live under tests/:
 
-test_api_smoke.py – smoke tests for FastAPI app using a DummyRetriever (no FAISS required).
+- test_api_smoke.py – smoke tests for FastAPI app using a DummyRetriever (no FAISS required).
 
-test_build_index_script.py – end-to-end test for scripts/build_index.py:
+- test_build_index_script.py – end-to-end test for scripts/build_index.py:
 
-builds an index from temporary .txt / .md docs,
+- builds an index from temporary .txt / .md docs,
 
-verifies index and metadata files are created and non-empty.
+- verifies index and metadata files are created and non-empty.
 
-test_retriever_encode_and_search.py – end-to-end test for VectorRetriever:
+- test_retriever_encode_and_search.py – end-to-end test for VectorRetriever:
 
-encodes dummy texts,
+- encodes dummy texts,
 
-builds and saves a FAISS index + metadata,
+- builds and saves a FAISS index + metadata,
 
-loads a new retriever and runs top-k search,
+- loads a new retriever and runs top-k search,
 
-checks normalization, determinism, and metadata consistency.
+- checks normalization, determinism, and metadata consistency.
 
 Run all tests:
 
