@@ -21,16 +21,16 @@ app = FastAPI(
 
 
 class SearchRequest(BaseModel):
-    """Запрос к эндпоинту /search."""
+    """Request body for /search endpoint."""
     query: str
     top_k: int = 5
 
 
 class SearchResult(BaseModel):
     """
-    Один фрагмент контекста в ответе /search и /chat.
+    One retrieved chunk as returned by /search and /chat.
 
-    Поля соответствуют тому, что ожидает tests/test_api_smoke.py:
+    Fields match tests/test_api_smoke.py expectations:
     - doc_id
     - chunk_id
     - score
@@ -43,23 +43,23 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Ответ /search: исходный запрос и список найденных фрагментов."""
+    """Response for /search: original query + list of results."""
     query: str
     results: List[SearchResult]
 
 
 class ChatRequest(BaseModel):
-    """Запрос к эндпоинту /chat."""
+    """Request body for /chat endpoint."""
     query: str
     top_k: int = 3
 
 
 class ChatResponse(BaseModel):
     """
-    Ответ /chat:
+    Response for /chat:
 
-    - answer: stub-ответ от чата,
-    - context: список SearchResult, использованный как контекст.
+    - answer: stub answer
+    - context: list of SearchResult used as context
     """
     query: str
     answer: str
@@ -73,14 +73,13 @@ _retriever: Optional[VectorRetriever] = None
 
 def get_retriever() -> VectorRetriever:
     """
-    Возвращает singleton-экземпляр VectorRetriever.
+    Returns a singleton instance of VectorRetriever.
 
-    В боевом режиме:
-    - загружает FAISS-индекс и метаданные через VectorRetriever.from_config(config).
+    In production:
+    - loads FAISS index and metadata via VectorRetriever.from_config(config).
 
-    В тестах:
-    - monkeypatch в tests/test_api_smoke.py подменяет эту функцию так,
-      чтобы возвращался DummyRetriever.
+    In tests:
+    - tests/test_api_smoke.py monkeypatches this function to return DummyRetriever.
     """
     global _retriever
     if _retriever is None:
@@ -88,15 +87,15 @@ def get_retriever() -> VectorRetriever:
     return _retriever
 
 
-# ---------- Helpers для извлечения полей из результатов ----------
+# ---------- Helpers to adapt result objects ----------
 
 
 def _get_attr_or_key(obj, name: str, default=None):
     """
-    Универсальный доступ к полю результата:
-    - если obj — dict, берем obj[name];
-    - если у obj есть атрибут name, берем его;
-    - иначе возвращаем default.
+    Universal accessor for result fields:
+    - if obj is dict, use obj[name];
+    - if obj has attribute `name`, use getattr(obj, name);
+    - otherwise return default.
     """
     if isinstance(obj, dict):
         return obj.get(name, default)
@@ -107,11 +106,12 @@ def _get_attr_or_key(obj, name: str, default=None):
 
 def _result_to_search_result(r) -> SearchResult:
     """
-    Преобразует объект результата ретривера (dict или объект с атрибутами)
-    к Pydantic-модели SearchResult.
+    Convert a retriever result (dict or object with attributes)
+    to a Pydantic SearchResult.
 
-    Совместимо как с реальным VectorRetriever, так и с DummyRetriever
-    из tests/test_api_smoke.py (DummySearchResult).
+    Compatible with:
+    - real VectorRetriever results
+    - DummyRetriever.DummySearchResult from tests/test_api_smoke.py
     """
     doc_id = _get_attr_or_key(r, "doc_id", "unknown")
     chunk_id = int(_get_attr_or_key(r, "chunk_id", 0))
@@ -131,27 +131,27 @@ def _result_to_search_result(r) -> SearchResult:
 
 @app.get("/health")
 def health() -> dict:
-    """Простой health-check для smoke-тестов и мониторинга."""
+    """Simple health-check used by smoke tests and monitoring."""
     return {"status": "ok"}
 
 
 @app.post("/search", response_model=SearchResponse)
 def search(request: SearchRequest) -> SearchResponse:
     """
-    Эндпоинт поиска по векторному индексу.
+    Vector search endpoint.
 
-    Использует get_retriever().search(...) и возвращает:
+    Returns:
     {
       "query": "...",
       "results": [ {doc_id, chunk_id, score, text}, ... ]
     }
 
-    Формат строго соответствует ожиданиям tests/test_api_smoke.py.
+    Response shape matches tests/test_api_smoke.py.
     """
     retriever = get_retriever()
-    # В реальном коде VectorRetriever.search может не иметь параметра with_text,
-    # но DummyRetriever в тестах его принимает. Поэтому передадим только то,
-    # что гарантированно есть.
+    # In real code VectorRetriever.search may not need `with_text`,
+    # but DummyRetriever in tests supports it. We pass only parameters
+    # that are safe for both.
     raw_results = retriever.search(request.query, top_k=request.top_k)
 
     results = [_result_to_search_result(r) for r in raw_results]
@@ -165,18 +165,17 @@ def search(request: SearchRequest) -> SearchResponse:
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     """
-    Stub-чат поверх ретривера.
+    Stub chat endpoint on top of the retriever.
 
-    Тест ожидает, что:
-    - ответ содержит строку "stub chat endpoint" (в любом регистре);
-    - в поле context лежит список фрагментов, аналогичных /search.
+    tests/test_api_smoke.py expects:
+    - `answer` contains substring "stub chat endpoint" (case-insensitive)
+    - `context` is a list of items with doc_id, chunk_id, score, text.
     """
     retriever = get_retriever()
     raw_results = retriever.search(request.query, top_k=request.top_k)
-
     context = [_result_to_search_result(r) for r in raw_results]
 
-    # Важно: тест ищет подстроку "stub chat endpoint" в answer.lower()
+    # IMPORTANT: include "stub chat endpoint" for the test assertion
     answer = (
         "This is a stub chat endpoint response. "
         f"Your query was: '{request.query}'. "
