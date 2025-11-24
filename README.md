@@ -14,7 +14,7 @@ The goal is to provide:
 
 The LLM backend and production-grade ingestion pipelines can be plugged in later.
 
----
+
 ### Optional LLM backend for `/chat`
 
 By default, the `/chat` endpoint still behaves as a **stub**:
@@ -24,7 +24,7 @@ By default, the `/chat` endpoint still behaves as a **stub**:
 
 You can enable a minimal end-to-end RAG flow by configuring an OpenAI-compatible backend:
 
-```yaml
+
 # configs/default.yaml
 llm:
   provider: openai
@@ -48,7 +48,7 @@ return the LLM answer together with the retrieved context.
 
 If the API key is missing or the call fails, the endpoint safely falls back to the historical stub answer.
 
-```
+
 ## Screenshots
 
 ### CLI search
@@ -92,13 +92,13 @@ If the API key is missing or the call fails, the endpoint safely falls back to t
 - 🖥️ **CLI search tool**  
   From the project root:
 
-  ```bash
-  python -m src.cli search "How to harden SSH on Ubuntu?" --top-k 5
+```bash
+python -m src.cli search "How to harden SSH on Ubuntu?" --top-k 5
 
 ```
 
 
-🌐 HTTP API (FastAPI + Uvicorn)
+## 🌐 HTTP API (FastAPI + Uvicorn)
 
 GET /health – health-check.
 
@@ -106,7 +106,7 @@ POST /search – vector search over the index.
 
 POST /chat – stub RAG endpoint that calls the retriever and returns a template answer + context.
 
-📚 Example industrial corpus (in data/raw/)
+## 📚 Example industrial corpus (in data/raw/)
 
 SSH hardening and SSH access policies.
 
@@ -119,7 +119,7 @@ RAG chatbot operator manuals.
 Data classification guidelines (RU + EN).
 
 
-🧩 Architecture Overview
+## 🧩 Architecture Overview
 1. Configuration (src/config.py, configs/default.yaml)
 
 src/config.py:
@@ -429,7 +429,7 @@ data/
 
 These documents illustrate typical industrial topics: SSH security, equipment maintenance, incident reporting, RAG usage, and data classification (RU + EN).
 
-📁 Project Structure
+## 📁 Project Structure
 
 ```text
 industrial-docs-rag-chatbot/
@@ -464,12 +464,12 @@ industrial-docs-rag-chatbot/
 
 ```
 
-🚀 Installation
+## 🚀 Installation
 1. Create and activate a virtual environment (recommended)
 
 python -m venv .venv
 source .venv/bin/activate      # Linux/macOS
- .venv\Scripts\activate       # Windows
+ #.venv\Scripts\activate       # Windows
 
 2. Install dependencies
 
@@ -481,7 +481,7 @@ Development (tests, linters, etc.):
 pip install -r requirements-dev.txt
 
 
-**🏗️ Building the Document Index**
+## 🏗️ Building the Document Index
 
 Before the API or CLI can search anything, you need a FAISS index and metadata.
 
@@ -532,7 +532,7 @@ data/index/metadata.jsonl
 After the index is built, the API will be able to load it via VectorRetriever.from_config() and serve real search results.
 
 
-**🌐 Running the HTTP API**
+## 🌐 Running the HTTP API
 
 From the project root:
 
@@ -554,7 +554,7 @@ play with POST /search,
 try the stub POST /chat.
 
 
-**🧪 Testing**
+## 🧪 Testing
 
 Tests live under tests/:
 
@@ -586,7 +586,7 @@ Run only API smoke tests:
 pytest tests/test_api_smoke.py
 
 
-**🗺️ Roadmap**
+## 🗺️ Roadmap
 
 Planned extensions (not all implemented yet):
 
@@ -628,12 +628,12 @@ docker run --rm -p 8000:8000 \
   industrial-docs-rag
 
 
-## Version
+## Versioning
 ## [0.1.0] - 2025-11-24
 - Initial industrial RAG skeleton: config, VectorRetriever, CLI, FastAPI API, index builders, example industrial docs and tests.
 
 
-**📄 License**
+## 📄 License
 
 This project is licensed under the MIT License.
 See LICENSE for the full text.
