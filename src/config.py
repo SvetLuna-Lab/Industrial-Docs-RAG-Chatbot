@@ -1,4 +1,3 @@
-# src/config.py
 from __future__ import annotations
 
 """
@@ -52,8 +51,13 @@ class Paths(BaseModel):
         )
 
 
-# A global instance that can be imported from other modules.
+# Global instance importable from other modules.
 PATHS = Paths.from_project_root()
+
+# Default locations for FAISS index and metadata JSONL.
+INDEX_PATH: Path = PATHS.index_dir / "faiss_index.bin"
+METADATA_PATH: Path = PATHS.index_dir / "metadata.jsonl"
+
 
 # -------------------------------------------------------------------
 # Config sections
@@ -151,7 +155,7 @@ class AppConfig(BaseModel):
 # -------------------------------------------------------------------
 
 
-DEFAULT_CONFIG_PATH = PATHS.configs_dir / "default.yaml"
+DEFAULT_CONFIG_PATH: Path = PATHS.configs_dir / "default.yaml"
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -176,12 +180,14 @@ def load_app_config(path: Optional[Path] = None) -> AppConfig:
     with the defaults defined in AppConfig.
 
     - If 'path' is None, configs/default.yaml is used.
-    - Missing fields fall back to the defaults from the dataclasses.
+    - Missing fields fall back to the defaults from the Pydantic models.
     - Extra fields in YAML are ignored.
     """
     cfg_path = path or DEFAULT_CONFIG_PATH
     raw = _load_yaml(cfg_path)
 
-    # pydantic will ignore unknown keys by default, and recursively construct
+    # Pydantic will ignore unknown keys by default, and recursively construct
     # nested models from dicts: {"embedding": {...}, "retrieval": {...}, ...}
     return AppConfig(**raw)
+
+ 
