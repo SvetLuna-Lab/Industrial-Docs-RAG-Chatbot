@@ -441,6 +441,10 @@ industrial-docs-rag-chatbot/
 ├─ docs/
 │  ├─ Overview_EN.md            # English project overview (optional)
 │  └─ Overview_RU.md            # Russian project overview
+│  └─ images/
+│     └─ cli_search_example.png
+│     └─ swagger_search_example.png
+│     └─ uvicorn_run_example.png
 ├─ scripts/
 │  └─ build_index.py            # lightweight index builder (hash-based embeddings)
 ├─ src/
