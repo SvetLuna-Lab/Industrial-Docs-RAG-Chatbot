@@ -1,4 +1,3 @@
-# src/ingest.py
 from __future__ import annotations
 
 """
@@ -11,34 +10,35 @@ Responsibilities:
 - compute embeddings for all chunks;
 - build and persist a FAISS index + metadata.
 
-This module is written as a simple CLI script that can be called as:
+This module can be called as:
 
     python -m src.ingest
 
-Later it can be extended to support PDFs, DOCX, more advanced chunking,
-and incremental updates.
+Compared to scripts/build_index.py, this pipeline:
+- uses a real sentence-transformers model for embeddings;
+- writes FAISS index + JSONL metadata in the same format expected by
+  VectorRetriever and the FastAPI/CLI layers.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Dict, Tuple
+from typing import Iterable, List, Dict, Tuple, Optional
 
 import argparse
 import json
 
 import numpy as np
-
 from sentence_transformers import SentenceTransformer
 
 try:
     import faiss  # type: ignore
-except ImportError as exc:
+except ImportError as exc:  # pragma: no cover
     raise RuntimeError(
         "faiss is required for the ingestion pipeline. "
         "Please install faiss-cpu in your environment."
     ) from exc
 
-from .config import PATHS, load_app_config
+from .config import PATHS, INDEX_PATH, METADATA_PATH, load_app_config
 
 
 # -------------------------------------------------------------------
@@ -55,11 +55,13 @@ class Chunk:
         doc_id: logical document identifier (usually the relative path).
         chunk_id: running integer index within the document.
         text: the actual chunk text.
+        source_path: original file path on disk (POSIX string).
     """
 
     doc_id: str
     chunk_id: int
     text: str
+    source_path: str
 
 
 # -------------------------------------------------------------------
@@ -152,7 +154,8 @@ def build_chunks_for_corpus(raw_dir: Path) -> List[Chunk]:
     Each chunk knows:
     - which logical document it comes from (doc_id),
     - its position within that document (chunk_id),
-    - the text itself.
+    - the text itself,
+    - original file path (source_path).
 
     The doc_id is stored as a POSIX-style relative path from raw_dir.
     """
@@ -166,7 +169,12 @@ def build_chunks_for_corpus(raw_dir: Path) -> List[Chunk]:
         chunks = split_into_chunks(raw_text)
         for idx, ch_text in enumerate(chunks):
             all_chunks.append(
-                Chunk(doc_id=rel_path, chunk_id=idx, text=ch_text)
+                Chunk(
+                    doc_id=rel_path,
+                    chunk_id=idx,
+                    text=ch_text,
+                    source_path=str(file_path),
+                )
             )
 
     return all_chunks
@@ -230,35 +238,41 @@ def build_faiss_index(embeddings: np.ndarray) -> faiss.Index:
 def save_index_and_metadata(
     index: faiss.Index,
     chunks: List[Chunk],
-    index_dir: Path,
+    index_path: Path,
+    metadata_path: Path,
 ) -> None:
     """
     Persist the FAISS index and its metadata to disk.
 
-    Files:
+    Files (by default, see config.INDEX_PATH / METADATA_PATH):
         - data/index/faiss_index.bin
         - data/index/metadata.jsonl  (one JSON per line)
-    """
-    index_dir.mkdir(parents=True, exist_ok=True)
 
-    index_path = index_dir / "faiss_index.bin"
-    meta_path = index_dir / "metadata.jsonl"
+    Each metadata line has the shape:
+    {
+        "doc_id": str,
+        "chunk_id": int,
+        "source_path": str,
+        "text": str,
+    }
+    """
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
     faiss.write_index(index, str(index_path))
 
-    with meta_path.open("w", encoding="utf-8") as f:
-        for row_id, ch in enumerate(chunks):
-            meta = {
-                "row_id": row_id,
+    with metadata_path.open("w", encoding="utf-8") as f:
+        for ch in chunks:
+            meta: Dict[str, object] = {
                 "doc_id": ch.doc_id,
                 "chunk_id": ch.chunk_id,
-                # we do not store the full text here to keep metadata small;
-                # the retriever can load text by doc_id + chunk_id later.
+                "source_path": ch.source_path,
+                "text": ch.text,
             }
             f.write(json.dumps(meta, ensure_ascii=False) + "\n")
 
     print(f"[OK] Saved FAISS index to {index_path}")
-    print(f"[OK] Saved metadata for {len(chunks)} chunks to {meta_path}")
+    print(f"[OK] Saved metadata for {len(chunks)} chunks to {metadata_path}")
 
 
 # -------------------------------------------------------------------
@@ -266,7 +280,7 @@ def save_index_and_metadata(
 # -------------------------------------------------------------------
 
 
-def run_ingestion(config_path: Path | None = None) -> None:
+def run_ingestion(config_path: Optional[Path] = None) -> None:
     """
     Top-level function that runs the ingestion pipeline:
 
@@ -279,11 +293,13 @@ def run_ingestion(config_path: Path | None = None) -> None:
     cfg = load_app_config(config_path)
 
     raw_dir = PATHS.raw_data_dir
-    index_dir = PATHS.index_dir
+    index_path = INDEX_PATH
+    metadata_path = METADATA_PATH
 
     print(f"[INFO] Project root: {PATHS.project_root}")
     print(f"[INFO] Raw docs directory: {raw_dir}")
-    print(f"[INFO] Index directory: {index_dir}")
+    print(f"[INFO] Index path: {index_path}")
+    print(f"[INFO] Metadata path: {metadata_path}")
     print(f"[INFO] Embedding model: {cfg.embedding.model_name} (device={cfg.embedding.device})")
 
     chunks = build_chunks_for_corpus(raw_dir)
@@ -302,7 +318,7 @@ def run_ingestion(config_path: Path | None = None) -> None:
     print(f"[INFO] Embeddings shape: {embeddings.shape}")
 
     index = build_faiss_index(embeddings)
-    save_index_and_metadata(index, chunks, index_dir)
+    save_index_and_metadata(index, chunks, index_path=index_path, metadata_path=metadata_path)
 
     print("[DONE] Ingestion pipeline completed.")
 
@@ -326,3 +342,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
