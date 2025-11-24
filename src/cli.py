@@ -1,4 +1,3 @@
-# src/cli.py
 from __future__ import annotations
 
 """
@@ -15,13 +14,50 @@ Example usage (from project root):
 The CLI uses:
 - default paths from src.config.PATHS,
 - default settings from configs/default.yaml,
-- VectorRetriever.from_default() for loading index + embeddings.
+- VectorRetriever.from_default() for loading index + metadata.
 """
 
 import argparse
 from textwrap import shorten
+from typing import Any
 
 from .retriever import VectorRetriever
+
+
+def _get_attr_or_key(obj: Any, name: str, default=None):
+    """
+    Universal accessor for result fields:
+    - if obj is dict, use obj[name];
+    - if obj has attribute `name`, use getattr(obj, name);
+    - otherwise return default.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    if hasattr(obj, name):
+        return getattr(obj, name)
+    return default
+
+
+def _extract_text(result: Any) -> str:
+    """
+    Extract chunk text from a retriever result.
+
+    Priority:
+    1) direct `text` attribute / key;
+    2) `metadata["text"]` if result is a dict with `metadata` dict;
+    3) empty string if nothing found.
+    """
+    text = _get_attr_or_key(result, "text", None)
+
+    if (text is None or text == "") and isinstance(result, dict):
+        meta = result.get("metadata") or {}
+        if isinstance(meta, dict):
+            text = meta.get("text", "")
+
+    if text is None:
+        text = ""
+
+    return str(text)
 
 
 def cmd_search(args: argparse.Namespace) -> None:
@@ -30,7 +66,7 @@ def cmd_search(args: argparse.Namespace) -> None:
 
     Steps:
     - load VectorRetriever via from_default();
-    - run search(query, top_k);
+    - run search(query, top_k, with_text=True);
     - print ranked results with score, doc_id, chunk_id and snippet.
     """
     retriever = VectorRetriever.from_default()
@@ -38,6 +74,7 @@ def cmd_search(args: argparse.Namespace) -> None:
     top_k = args.top_k
     query = args.query
 
+    # with_text=True – чтобы API возвращал текст чанка (если он есть в metadata)
     results = retriever.search(query, top_k=top_k, with_text=True)
 
     if not results:
@@ -48,8 +85,14 @@ def cmd_search(args: argparse.Namespace) -> None:
     print(f"Top-{len(results)} results:\n")
 
     for i, r in enumerate(results, start=1):
-        snippet = shorten((r.text or "").replace("\n", " "), width=200, placeholder="…")
-        print(f"[{i}] score={r.score:.4f}  doc={r.doc_id}  chunk={r.chunk_id}")
+        doc_id = _get_attr_or_key(r, "doc_id", "unknown")
+        chunk_id = int(_get_attr_or_key(r, "chunk_id", 0))
+        score = float(_get_attr_or_key(r, "score", 0.0))
+
+        raw_text = _extract_text(r)
+        snippet = shorten(raw_text.replace("\n", " "), width=200, placeholder="…")
+
+        print(f"[{i}] score={score:.4f}  doc={doc_id}  chunk={chunk_id}")
         if snippet:
             print(f"    {snippet}")
         print()
